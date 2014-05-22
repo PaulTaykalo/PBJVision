@@ -133,6 +133,7 @@ PBJMediaWriterDelegate>
     CMTime _lastTimestamp;
     
     CMTime _maximumCaptureDuration;
+    CMTime _recordedDuration;
     
     // sample buffer rendering
     
@@ -180,6 +181,7 @@ PBJMediaWriterDelegate>
 @synthesize presentationFrame = _presentationFrame;
 @synthesize audioBitRate = _audioBitRate;
 @synthesize videoBitRate = _videoBitRate;
+@synthesize videoRateScale = _videoRateScale;
 @synthesize captureSessionPreset = _captureSessionPreset;
 @synthesize maximumCaptureDuration = _maximumCaptureDuration;
 
@@ -243,14 +245,10 @@ PBJMediaWriterDelegate>
 
 - (Float64)capturedVideoSeconds
 {
-    if (_mediaWriter && CMTIME_IS_VALID(_mediaWriter.videoTimestamp)) {
-        if (CMTimeGetSeconds(CMTimeSubtract(_mediaWriter.videoTimestamp, _startTimestamp)) < 0) {
-            _startTimestamp = _mediaWriter.videoTimestamp;
-        }
-        return CMTimeGetSeconds(CMTimeSubtract(_mediaWriter.videoTimestamp, _startTimestamp));
-    } else {
-        return 0.0;
+    if (CMTIME_IS_VALID(_recordedDuration)) {
+        return CMTimeGetSeconds(_recordedDuration);
     }
+    return 0.0;
 }
 
 - (void)setCameraOrientation:(PBJCameraOrientation)cameraOrientation
@@ -646,7 +644,7 @@ PBJMediaWriterDelegate>
         // 2975000, good for 1920 x 1080
         // 3750000, good for iFrame 960 x 540
         // 5000000, good for iFrame 1280 x 720
-        CGFloat bytesPerSecond = 1312500;
+        CGFloat bytesPerSecond = 5000000;
         _videoBitRate = bytesPerSecond * 8;
         
         // default flags
@@ -770,6 +768,7 @@ typedef void (^PBJVisionBlock)();
     
     // capture device initial settings
     _videoFrameRate = 30;
+    _videoRateScale = 1.0;
     
     // add notification observers
     NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
@@ -1603,6 +1602,7 @@ typedef void (^PBJVisionBlock)();
         [self _setOrientationForConnection:videoConnection];
         
         _startTimestamp = CMClockGetTime(CMClockGetHostTimeClock());
+        _recordedDuration = kCMTimeZero;
         _lastTimestamp = kCMTimeInvalid;
         
         _flags.recording = YES;
@@ -1683,6 +1683,7 @@ typedef void (^PBJVisionBlock)();
             
             _lastTimestamp = kCMTimeInvalid;
             _startTimestamp = CMClockGetTime(CMClockGetHostTimeClock());
+            _recordedDuration = kCMTimeZero;
             _flags.interrupted = NO;
             
             [self _enqueueBlockOnMainQueue:^{
@@ -1714,6 +1715,7 @@ typedef void (^PBJVisionBlock)();
         void (^finishWritingCompletionHandler)(void) = ^{
             _lastTimestamp = kCMTimeInvalid;
             _startTimestamp = CMClockGetTime(CMClockGetHostTimeClock());
+            _recordedDuration = kCMTimeZero;
             _flags.interrupted = NO;
             
             [self _enqueueBlockOnMainQueue:^{
@@ -1783,7 +1785,7 @@ typedef void (^PBJVisionBlock)();
     }
     
     // TODO: expose a means for adding addition options to setings
-    NSDictionary *compressionSettings = @{ AVVideoProfileLevelKey : AVVideoProfileLevelH264MainAutoLevel,
+    NSDictionary *compressionSettings = @{ AVVideoProfileLevelKey : AVVideoProfileLevelH264HighAutoLevel,
                                            AVVideoAverageBitRateKey : @(_videoBitRate),
                                            AVVideoMaxKeyFrameIntervalKey : @(_videoFrameRate) };
     
@@ -1857,17 +1859,25 @@ typedef void (^PBJVisionBlock)();
             }
         }
         
+        
         CMSampleBufferRef bufferToWrite = NULL;
         // Update buffer to the correct speed
         
-        if (_lastTimestamp.value > 0) {
-            bufferToWrite = [PBJVisionUtilities createOffsetSampleBufferWithSampleBuffer:sampleBuffer usingTimeOffset:_lastTimestamp];
-            if (!bufferToWrite) {
-                DLog(@"error subtracting the timeoffset from the sampleBuffer");
+        if (isVideo) {
+            CMTime time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+            if (CMTIME_IS_VALID(time)) {
+                time = CMTimeSubtract(time, _recordedDuration);
+                
+                bufferToWrite = [PBJVisionUtilities createOffsetSampleBufferWithSampleBuffer:sampleBuffer usingTimeOffset:time];
+                
+                CMTime bufferDuration = CMSampleBufferGetDuration(bufferToWrite);
+                if (bufferDuration.value <= 0) {
+                    bufferDuration = _currentDevice.activeVideoMaxFrameDuration;
+                }
+                
+                // TODO : Move it to parametrized settings
+                _recordedDuration = CMTimeAdd(_recordedDuration, CMTimeMultiplyByFloat64(bufferDuration, _videoRateScale));
             }
-        } else {
-            bufferToWrite = sampleBuffer;
-            CFRetain(bufferToWrite);
         }
         
         if (isVideo && !_flags.interrupted) {
@@ -1886,10 +1896,10 @@ typedef void (^PBJVisionBlock)();
                 
                 // process the sample buffer for rendering
                 if (_flags.videoRenderingEnabled && _flags.videoWritten) {
-                        [self _executeBlockOnMainQueue:^{
-                            [self _processSampleBuffer:bufferToWrite];
-                        }];
-                    }
+                    [self _executeBlockOnMainQueue:^{
+                        [self _processSampleBuffer:bufferToWrite];
+                    }];
+                }
                 
                 [self _enqueueBlockOnMainQueue:^{
                     if ([_delegate respondsToSelector:@selector(visionDidCaptureVideoSample:)]) {
@@ -1921,22 +1931,12 @@ typedef void (^PBJVisionBlock)();
         
         currentTimestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
         
-        if (!_flags.interrupted && CMTIME_IS_VALID(currentTimestamp) && CMTIME_IS_VALID(_startTimestamp) && CMTIME_IS_VALID(_maximumCaptureDuration)) {
+        if (CMTIME_IS_VALID(_recordedDuration) && CMTIME_IS_VALID(_maximumCaptureDuration)) {
             
-            if (CMTIME_IS_VALID(_lastTimestamp)) {
-                // Current time stamp is actually timstamp with data from globalClock
-                // In case, if we had interruption, then _lastTimeStamp
-                // will have infromation about the time diff between globalClock and assetWriterClock
-                // So in case if we had interruption we need to remove that offset from "currentTimestamp"
-                currentTimestamp = CMTimeSubtract(currentTimestamp, _lastTimestamp);
-            }
-            CMTime currentCaptureDuration = CMTimeSubtract(currentTimestamp, _startTimestamp);
-            if (CMTIME_IS_VALID(currentCaptureDuration)) {
-                if (CMTIME_COMPARE_INLINE(currentCaptureDuration, >=, _maximumCaptureDuration)) {
-                    [self _enqueueBlockOnMainQueue:^{
-                        [self endVideoCapture];
-                    }];
-                }
+            if (CMTIME_COMPARE_INLINE(_recordedDuration, >=, _maximumCaptureDuration)) {
+                [self _enqueueBlockOnMainQueue:^{
+                    [self endVideoCapture];
+                }];
             }
         }
         

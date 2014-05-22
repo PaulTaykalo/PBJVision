@@ -135,6 +135,8 @@ extern NSString * const PBJVisionVideoCapturedDurationKey; // Captured duration 
 @property (nonatomic) NSInteger videoFrameRate; // desired fps for active cameraDevice
 - (BOOL)supportsVideoFrameRate:(NSInteger)videoFrameRate;
 
+@property (nonatomic, assign) Float64 videoRateScale; // Video samples scaling factor. Deafult is 1.0
+
 // preview
 
 @property (nonatomic, readonly) AVCaptureVideoPreviewLayer *previewLayer;
