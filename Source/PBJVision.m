@@ -79,6 +79,12 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
 
 ///
 
+@interface AVCaptureDevice (Private)
+
+- (BOOL)supportsVideoFrameRate:(NSInteger)videoFrameRate;
+
+@end
+
 @interface PBJVision () <
 AVCaptureAudioDataOutputSampleBufferDelegate,
 AVCaptureVideoDataOutputSampleBufferDelegate,
@@ -490,8 +496,9 @@ PBJMediaWriterDelegate>
         return;
     }
     
-    BOOL isRecording = _flags.recording;
-    if (isRecording) {
+    BOOL isRecording = (BOOL) _flags.recording;
+    BOOL isPausedOriginally = (BOOL) _flags.paused;
+    if (isRecording && !isPausedOriginally) {
         [self pauseVideoCapture];
     }
     
@@ -564,7 +571,7 @@ PBJMediaWriterDelegate>
         
     }
     
-    if (isRecording) {
+    if (isRecording && !isPausedOriginally) {
         [self resumeVideoCapture];
     }
 }
@@ -594,7 +601,21 @@ PBJMediaWriterDelegate>
 - (BOOL)supportsVideoFrameRate:(NSInteger)videoFrameRate
 {
     if (floor(NSFoundationVersionNumber) > NSFoundationVersionNumber_iOS_6_1) {
-        AVCaptureDevice *videoDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+        AVCaptureDevice *videoDevice = _currentDevice;
+        if (!videoDevice) {
+            for (AVCaptureDeviceInput * input in [_captureSession inputs]) {
+                if ([input isKindOfClass:[AVCaptureDeviceInput class]]) {
+                    if ([input.device hasMediaType:AVMediaTypeVideo]) {
+                        videoDevice = input.device;
+                        break;
+                        
+                    }
+                }
+            }
+        }
+        if (!videoDevice) {
+            videoDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+        }
         
         NSArray *formats = [videoDevice formats];
         for (AVCaptureDeviceFormat *format in formats) {
@@ -1094,6 +1115,10 @@ typedef void (^PBJVisionBlock)();
     // best Frame rate
     NSLog(@"Best possible framerate is %lf",bestFrameRate);
     NSLog(@"Selected format is %@", supportingFormat);
+    if (![newCaptureDevice supportsVideoFrameRate:_videoFrameRate]) {
+        _videoFrameRate = 30;
+        _videoRateScale = 1;
+    }
     
     NSError *error = nil;
     if ([newCaptureDevice lockForConfiguration:&error]) {
