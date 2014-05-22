@@ -443,12 +443,28 @@ PBJMediaWriterDelegate>
 
 - (BOOL)isFlashAvailable
 {
-    return (_currentDevice && [_currentDevice hasFlash]);
+    AVCaptureDevice * videoDevice = _currentDevice;
+    if (!videoDevice) {
+        for (AVCaptureDeviceInput * input in [_captureSession inputs]) {
+            if ([input isKindOfClass:[AVCaptureDeviceInput class]]) {
+                if ([input.device hasMediaType:AVMediaTypeVideo]) {
+                    videoDevice = input.device;
+                    break;
+                    
+                }
+            }
+        }
+    }
+    if (!videoDevice) {
+        videoDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+    }
+    
+    return (videoDevice && [videoDevice hasFlash]);
 }
 
 - (void)setFlashMode:(PBJFlashMode)flashMode
 {
-    BOOL shouldChangeFlashMode = (_flashMode != flashMode);
+    BOOL shouldChangeFlashMode = ([self flashMode] != flashMode);
     if (![_currentDevice hasFlash] || !shouldChangeFlashMode)
         return;
     
@@ -485,6 +501,27 @@ PBJMediaWriterDelegate>
     } else if (error) {
         DLog(@"error locking device for flash mode change (%@)", error);
     }
+}
+
+- (PBJFlashMode)flashMode {
+    if (!_currentDevice) {
+        return PBJFlashModeAuto;
+    }
+    switch (_cameraMode) {
+        case PBJCameraModePhoto:
+        {
+            return [_currentDevice flashMode];
+            break;
+        }
+        case PBJCameraModeVideo:
+        {
+            return [_currentDevice torchMode];
+            break;
+        }
+        default:
+            break;
+    }
+    return PBJFlashModeAuto;
 }
 
 // framerate
@@ -527,23 +564,25 @@ PBJMediaWriterDelegate>
         }
         
         if (supportingFormat) {
-            NSError *error = nil;
-            [_captureSession beginConfiguration];
-            if ([_currentDevice lockForConfiguration:&error]) {
-                _currentDevice.activeVideoMinFrameDuration = fps;
-                _currentDevice.activeVideoMaxFrameDuration = fps;
-                _videoFrameRate = videoFrameRate;
-                [_currentDevice unlockForConfiguration];
-            } else if (error) {
-                DLog(@"error locking device for frame rate change (%@)", error);
-            }
-            [_captureSession commitConfiguration];
+            [self _enqueueBlockOnCaptureSessionQueue:^{
+                NSError *error = nil;
+                [_captureSession beginConfiguration];
+                if ([_currentDevice lockForConfiguration:&error]) {
+                    _currentDevice.activeVideoMinFrameDuration = fps;
+                    _currentDevice.activeVideoMaxFrameDuration = fps;
+                    _videoFrameRate = videoFrameRate;
+                    [_currentDevice unlockForConfiguration];
+                } else if (error) {
+                    DLog(@"error locking device for frame rate change (%@)", error);
+                }
+                [_captureSession commitConfiguration];
+            }];
+            [self _enqueueBlockOnMainQueue:^{
+                if ([_delegate respondsToSelector:@selector(visionDidChangeVideoFormatAndFrameRate:)])
+                    [_delegate visionDidChangeVideoFormatAndFrameRate:self];
+            }];
         }
         
-        [self _enqueueBlockOnMainQueue:^{
-            if ([_delegate respondsToSelector:@selector(visionDidChangeVideoFormatAndFrameRate:)])
-                [_delegate visionDidChangeVideoFormatAndFrameRate:self];
-        }];
         
     } else {
         
@@ -1124,8 +1163,8 @@ typedef void (^PBJVisionBlock)();
     if ([newCaptureDevice lockForConfiguration:&error]) {
         
         [newCaptureDevice setActiveFormat:supportingFormat];
-        [newCaptureDevice setActiveVideoMinFrameDuration:CMTimeMake(1, (int32_t)_videoFrameRate)];
-        [newCaptureDevice setActiveVideoMaxFrameDuration:CMTimeMake(1, (int32_t)_videoFrameRate)];
+        [newCaptureDevice setActiveVideoMinFrameDuration:CMTimeMake(1, _videoFrameRate)];
+        [newCaptureDevice setActiveVideoMaxFrameDuration:CMTimeMake(1, _videoFrameRate)];
         [newCaptureDevice unlockForConfiguration];
         
     } else if (error) {
