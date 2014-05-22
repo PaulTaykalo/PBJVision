@@ -1858,8 +1858,13 @@ typedef void (^PBJVisionBlock)();
             DLog(@"ready for video (%d)", _mediaWriter.isVideoReady);
         }
         
-        BOOL isReadyToRecord = (_mediaWriter.isAudioReady && _mediaWriter.isVideoReady);
+        BOOL isReadyToRecord = (_mediaWriter.isVideoReady);
         if (!isReadyToRecord) {
+            CFRelease(sampleBuffer);
+            return;
+        }
+        
+        if (isAudio) {
             CFRelease(sampleBuffer);
             return;
         }
@@ -1867,21 +1872,21 @@ typedef void (^PBJVisionBlock)();
         CMTime currentTimestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
         
         // calculate the length of the interruption
-        if (_flags.interrupted && isAudio) {
+        if (_flags.interrupted) {
             _flags.interrupted = NO;
             
-            // calculate the appropriate time offset
-            if (CMTIME_IS_VALID(currentTimestamp)) {
-                if (CMTIME_IS_VALID(_lastTimestamp)) {
-                    currentTimestamp = CMTimeSubtract(currentTimestamp, _lastTimestamp);
-                }
-                
-                CMTime offset = CMTimeSubtract(currentTimestamp, _mediaWriter.audioTimestamp);
-                _lastTimestamp = (_lastTimestamp.value == 0) ? offset : CMTimeAdd(_lastTimestamp, offset);
-                DLog(@"new calculated offset %f valid (%d)", CMTimeGetSeconds(_lastTimestamp), CMTIME_IS_VALID(_lastTimestamp));
-            } else {
-                DLog(@"invalid audio timestamp, no offset update");
-            }
+            //            // calculate the appropriate time offset
+            //            if (CMTIME_IS_VALID(currentTimestamp)) {
+            //                if (CMTIME_IS_VALID(_lastTimestamp)) {
+            //                    currentTimestamp = CMTimeSubtract(currentTimestamp, _lastTimestamp);
+            //                }
+            //
+            //                CMTime offset = CMTimeSubtract(currentTimestamp, _mediaWriter.audioTimestamp);
+            //                _lastTimestamp = (_lastTimestamp.value == 0) ? offset : CMTimeAdd(_lastTimestamp, offset);
+            //                DLog(@"new calculated offset %f valid (%d)", CMTimeGetSeconds(_lastTimestamp), CMTIME_IS_VALID(_lastTimestamp));
+            //            } else {
+            //                DLog(@"invalid audio timestamp, no offset update");
+            //            }
         }
         
         
