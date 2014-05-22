@@ -1099,8 +1099,8 @@ typedef void (^PBJVisionBlock)();
     if ([newCaptureDevice lockForConfiguration:&error]) {
         
         [newCaptureDevice setActiveFormat:supportingFormat];
-        [newCaptureDevice setActiveVideoMinFrameDuration:CMTimeMake(1, _videoFrameRate)];
-        [newCaptureDevice setActiveVideoMaxFrameDuration:CMTimeMake(1, _videoFrameRate)];
+        [newCaptureDevice setActiveVideoMinFrameDuration:CMTimeMake(1, (int32_t)_videoFrameRate)];
+        [newCaptureDevice setActiveVideoMaxFrameDuration:CMTimeMake(1, (int32_t)_videoFrameRate)];
         [newCaptureDevice unlockForConfiguration];
         
     } else if (error) {
