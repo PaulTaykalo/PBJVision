@@ -535,9 +535,9 @@ PBJMediaWriterDelegate>
     
     BOOL isRecording = (BOOL) _flags.recording;
     BOOL isPausedOriginally = (BOOL) _flags.paused;
-    if (isRecording && !isPausedOriginally) {
-        [self pauseVideoCapture];
-    }
+    //    if (isRecording && !isPausedOriginally) {
+    //        [self pauseVideoCapture];
+    //    }
     
     CMTime fps = CMTimeMake(1, (int32_t)videoFrameRate);
     
@@ -566,7 +566,7 @@ PBJMediaWriterDelegate>
         if (supportingFormat) {
             [self _enqueueBlockOnCaptureSessionQueue:^{
                 NSError *error = nil;
-                [_captureSession beginConfiguration];
+                //                [_captureSession beginConfiguration];
                 if ([_currentDevice lockForConfiguration:&error]) {
                     _currentDevice.activeVideoMinFrameDuration = fps;
                     _currentDevice.activeVideoMaxFrameDuration = fps;
@@ -575,7 +575,7 @@ PBJMediaWriterDelegate>
                 } else if (error) {
                     DLog(@"error locking device for frame rate change (%@)", error);
                 }
-                [_captureSession commitConfiguration];
+                //                [_captureSession commitConfiguration];
             }];
             [self _enqueueBlockOnMainQueue:^{
                 if ([_delegate respondsToSelector:@selector(visionDidChangeVideoFormatAndFrameRate:)])
@@ -610,9 +610,9 @@ PBJMediaWriterDelegate>
         
     }
     
-    if (isRecording && !isPausedOriginally) {
-        [self resumeVideoCapture];
-    }
+    //    if (isRecording && !isPausedOriginally) {
+    //        [self resumeVideoCapture];
+    //    }
 }
 
 - (NSInteger)videoFrameRate
