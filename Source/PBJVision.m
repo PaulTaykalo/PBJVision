@@ -1324,8 +1324,8 @@ typedef void (^PBJVisionBlock)();
 
 - (void)focusAtAdjustedPointOfInterest:(CGPoint)adjustedPoint
 {
-    if ([_currentDevice isAdjustingFocus] || [_currentDevice isAdjustingExposure])
-        return;
+    //    if ([_currentDevice isAdjustingFocus] || [_currentDevice isAdjustingExposure])
+    //        return;
     
     NSError *error = nil;
     if ([_currentDevice lockForConfiguration:&error]) {
@@ -1333,9 +1333,8 @@ typedef void (^PBJVisionBlock)();
         BOOL isFocusAtPointSupported = [_currentDevice isFocusPointOfInterestSupported];
         
         if (isFocusAtPointSupported && [_currentDevice isFocusModeSupported:AVCaptureFocusModeAutoFocus]) {
-            AVCaptureFocusMode fm = [_currentDevice focusMode];
             [_currentDevice setFocusPointOfInterest:adjustedPoint];
-            [_currentDevice setFocusMode:fm];
+            [_currentDevice setFocusMode:AVCaptureFocusModeAutoFocus];
         }
         [_currentDevice unlockForConfiguration];
         
@@ -1374,7 +1373,7 @@ typedef void (^PBJVisionBlock)();
     if ([_delegate respondsToSelector:@selector(visionWillStartFocus:)])
         [_delegate visionWillStartFocus:self];
     
-    CGPoint focusPoint = CGPointMake(0.5f, 0.5f);
+    CGPoint focusPoint = [_currentDevice focusPointOfInterest];
     [self focusAtAdjustedPointOfInterest:focusPoint];
 }
 
